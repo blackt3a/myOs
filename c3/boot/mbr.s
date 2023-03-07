@@ -2,6 +2,9 @@
 ;LOADER_START_SECTOR equ 0x2
 ;--------------------------------
 
+%include "boot.inc"
+
+
 SECTION MBR vstart=0x7c00
   mov ax,cx
   mov ds,ax
@@ -71,7 +74,7 @@ rd_disk_m_16:
 
 ;第二步，将LBA地址存入0x1f3~0x1f6
   ;LBA地址7～0位写入端口0x1f3
-  mov dx 0x1f3
+  mov dx,0x1f3
   out dx,al
 
   ;LBA地址15～8位写入端口0x1f4
