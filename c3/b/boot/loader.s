@@ -1,5 +1,11 @@
 %include "boot.inc"
+
+;前面MBR将loader从硬盘的第一个分区，载入到了内存0xa000开始的地址
 section loader vstart=LOADER_BASE_ADDR
+;LOADER_BASE_ADDR equ 0x900
+;LOADER_START_SECTOR equ 0x2
+
+
 ;输出背景字“1 MBR”
 
 mov byte [gs:0x00],'2'
