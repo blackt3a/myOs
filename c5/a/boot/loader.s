@@ -1,13 +1,29 @@
 %include "boot.inc"
-section loader vstart=LOADER_BASE_ADDR
+section loader vstart=LOADER_BASE_ADDR  ;加载的位置
 LOADER_STACK_TOP equ LOADER_BASE_ADDR
 
 
 ;--------构建GDT及其内部描述符---------------
+  GDT_BASE:   dd   0x00000000 
+              dd   0x00000000 
 
+  CODE_DESC:  dd   0x0000ffff
+              dd   CODE_DESC_HIGH4
 
+  DATA_STACK_DESC:  dd   0x0000ffff
+                    dd   CODE_DATA_HIGH4
+
+  VIDEO_DESC: dd   0x80000007
+              dd   DESC_VIDEO_HIGH4
+
+  GDT_SIZE  equ $ - GDT_BASE
+  GDT_LIMIT equ GDT_SIZE - 1
 
   times 60  dq  0
+
+  SELECTOR_CODE  equ (0x0001<<3) + TI_GDT + RPL0
+  SELECTOR_DATA  equ (0x0002<<3) + TI_GDT + RPL0
+  SELECTOR_VIDEO equ (0x0003<<3) + TI_GDT + RPL0
 
 ;total_mem_bytes用于保存内存容量，以字节为单位，此位置比较好记
 ;当前偏移loader.bin头文件0x200字节
@@ -28,7 +44,7 @@ LOADER_STACK_TOP equ LOADER_BASE_ADDR
   loader_start:
 ;int 15h, eax = 0000E820, edx = 534D4150h('SMAP') 获取内存
 ;第一次调用时，ebx值要为0
-;edx只赋值一次，循环体中不会改变
+;edx只赋值一次，:循环体中不会改变
   xor ebx,  ebx
   mov edx,  0x534d4150
   mov di ,  ards_buf    ;ards结构缓冲区

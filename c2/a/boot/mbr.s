@@ -2,9 +2,10 @@
 ;主引导程序
 ;----------------------------------
 ;-----------初始化寄存器-----------
-;vstart=0x700告诉编译器起始地址编译为0x700
+;vstart=0x700告诉编译器起始地址编译为0x7c00
+;因为cs：ip被初始化为0x7c00,所以此时cs寄存器中值为0
 SECTION MBR vstart=0x7c00
-  mov ax,cx
+  mov ax,cs
   mov ds,ax
   mov es,ax
   mov ss,ax
@@ -26,6 +27,7 @@ SECTION MBR vstart=0x7c00
   mov ax,0x600
   mov bx,0x700    
   mov cx,0          ;左下角：（0,0）
+  mov dx,0x184f
                     ;右下角：（80,25）
                     ;VGA文本模式中，一行只能容纳80个字符，共25行
                     ;下标从0开始，所以0x18=24,0x4f=79
@@ -58,16 +60,16 @@ SECTION MBR vstart=0x7c00
   mov ax,message
   mov bp,ax
 
-  mov cx,5
-  mov ax,0x1301
-  mov bx,0x2
+  mov cx,5      ;字符数
+  mov ax,0x1301 ;写字符方式
+  mov bx,0x2  ;显示属性
   int 0x10
 
 ;-------------打印字符串结束--------------
   jmp $
 
   message db "1 MBR"
-  times 510-($-$$) db 0
+  times 510-($-$$) db 0  ;将扇区填充满
 
   db 0x55,0xaa
 

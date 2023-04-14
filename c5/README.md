@@ -222,3 +222,322 @@ AVL(Available)，表示可用。相对用户程序而言，操作系统可用该
 
 ![](https://i.imgur.com/KzryQtb.png)
 
+
+
+为了实现真正的内核共享，页目录表中所有页目录项均初始化(第255个PDE指向页目录表自身，内核空间1GB)
+
+后面，为了让每个用户进程共享内存空间，每个进程都有独立的虚拟4GB空间，每个用户进程的高1GB都必须指向内核。也就是说，对于每一个进程，==页目录表==(每个页目录表不同)中第`768～1022`个页目录项都与其他进程相同(第`1023`个页目录项指向页目录表自身)。
+
+在进程创建页表时，都会把内核页第`768~1022`个页目录项复制到进程页目录表中相同的位置。这是最简单的共享内核方法(提前将内核页固定下来)。
+
+否则，如果因为需求，进程陷入内核时，新申请了内存(新增了页表)，还需要将新内核页同步到其他的进程的页表中。结果是如果内核为某个进程提供了资源，其他进程也能访问(暂不评价)。
+
+
+
+
+
+如何在页表中访问字节的物理地址呢？
+
+结合前面的知识：
+
+- 虚拟地址转化为物理地址的过程。32位地址的高，中，低三个部分各表不同
+- 每一个页表的最后一项都是自己的物理地址。
+
+我们用`0xfffffXXX`访问自己的物理地址。
+
+
+
+关于TLB(Translation Lookaside Buffer)
+
+- CPU会先访问它，且会实施刷新
+
+- 其对开发人员不可见，但需要开发人员手动控制
+
+  通过`invlpg`(invalidate page)指令，刷新特定的条目。
+
+  如：若更新虚拟地址0x1234对应的条目`invlpg [0x1234]`
+
+  注意，不是invlpg 0x1234
+
+
+
+加载内核
+
+关于gcc编译的一些基础知识，ld链接时，默认的入口地址是`_start`。可以使用`-e `（entry)手动指定。
+
+一般情况先gcc会默认完成整个过程。`C/C++`中`main`作起始是标准(也可以是其它的)。
+
+
+
+MBR加载到`0x7c00`，`loader`的地址是`0x900`，都是固定的
+
+但为了灵活，可不可以不固定？
+
+这就需要一种==标准==，或者说==文件格式==
+
+将一些重要信息储存在文件可开始的位置，再以一种约定去解析。这些信息就包括程序的==入口地址==
+
+
+
+关于ELF文件格式
+
+![](https://i.imgur.com/Ut2sYh5.png)
+
+![](https://i.imgur.com/7PTS8mc.png)
+
+![](https://i.imgur.com/LyLR40k.png)
+
+```c
+
+typedef struct
+{
+  unsigned char	e_ident[EI_NIDENT];	/* Magic number and other info */
+  Elf32_Half	e_type;			/* Object file type */
+  Elf32_Half	e_machine;		/* Architecture */
+  Elf32_Word	e_version;		/* Object file version */
+  Elf32_Addr	e_entry;		/* Entry point virtual address */
+  Elf32_Off	e_phoff;		/* Program header table file offset */
+  Elf32_Off	e_shoff;		/* Section header table file offset */
+  Elf32_Word	e_flags;		/* Processor-specific flags */
+  Elf32_Half	e_ehsize;		/* ELF header size in bytes */
+  Elf32_Half	e_phentsize;		/* Program header table entry size */
+  Elf32_Half	e_phnum;		/* Program header table entry count */
+  Elf32_Half	e_shentsize;		/* Section header table entry size */
+  Elf32_Half	e_shnum;		/* Section header table entry count */
+  Elf32_Half	e_shstrndx;		/* Section header string table index */
+} Elf32_Ehdr;
+
+
+```
+
+![](https://i.imgur.com/zaRcTkb.png)
+
+![](https://i.imgur.com/yb6ejif.png)
+
+![](https://i.imgur.com/YklZh7M.png)
+
+![](https://i.imgur.com/M6FQuTR.png)
+
+elf实现了机器平台无关的良好移植性
+
+`e_version`占4字节，表明版本信息
+
+`e_entry`占四字节，程序如果，表明操作系统运行该程序时，将控制权转交到虚拟地址
+
+`e_phoff`(program header table offset)，占4字节，程序头表的偏移，如果没有程序头表则为0.
+
+`e_shoff`(section header table)，占4字节，程序内节头表偏移，若没有节头表则为0.
+
+`e_flag`占4字节，与CPU相关的标志
+
+`e_ehsize`占2字节，用于指明elf header的字节大小
+
+`e_phentsize`占2字节，用于指明程序头(program header table)中每个条目(entry)的字节大小
+
+`e_phnum`占两字节，指明节头表中条目的数量，实际上就是节的个数。
+
+`e_shstrndx`占2字节，用于指明`string name table`在节头表中的索引index
+
+
+
+关于程序头表
+
+```c
+
+typedef struct
+{
+  Elf32_Word	p_type;			/* Segment type */
+  Elf32_Off	p_offset;		/* Segment file offset */
+  Elf32_Addr	p_vaddr;		/* Segment virtual address */
+  Elf32_Addr	p_paddr;		/* Segment physical address */
+  Elf32_Word	p_filesz;		/* Segment size in file */
+  Elf32_Word	p_memsz;		/* Segment size in memory */
+  Elf32_Word	p_flags;		/* Segment flags */
+  Elf32_Word	p_align;		/* Segment alignment */
+} Elf32_Phdr;
+```
+
+`p_type`类型说明
+
+![](https://i.imgur.com/N6p4G0v.png)
+
+`p_offset`占4字节，用于指明本段在文件内的起始偏移字节
+
+`p_vaddr`占用4字节，用于指明本段在内存中的起始虚拟地址(需要被加载到哪里)
+
+`p_paddr`占4字节，仅用于与物理地址相关的系统中
+
+`p_filesz`占4字节，指明本段在文件中的大小
+
+`P_memsz`占4字节，用来指明本段在内存中的大小
+
+`p_flags`占4字节，用来指明本段相关的标志
+
+![](https://i.imgur.com/JzceM2f.png)
+
+`p_align`占用4字节，用与表明本段在文件和内存中的对齐方式，0或1表示不对齐，否则应该是2的幂次数
+
+
+
+汇编指令`cld`和`std`
+
+控制flag寄存器，DF(（Direction Flag)位
+
+`cld`(clear direction),将DF寄存器置0，内存地址向高处变化。
+
+`std`(set direction)，将DF寄存器置1,内存地址向低处变化。
+
+
+
+为了保险，多做点不过分
+
+
+
+关于，ELF文件格式，建议还是熟悉一下。可以看看《程序员的自我与修养》
+
+
+
+关于程序权限
+
+程序特权级`0～3`
+
+TSS(Task State Segment)，任务状态段
+
+![](https://i.imgur.com/573UiI6.png)
+
+因为每个特权级只能有一个栈段，所以TSS可以储存3个栈段。
+
+
+
+
+
+关于特权级转移
+
+- 由中断门，调用门实现低特权级向高特权级
+- 由调用返回指令从高特权级返回到低特权级(这是唯一一种让处理器降低特权级的情况)
+
+
+
+因为从低到高是门调用，所以TSS储存的栈地址是0,1,2特权级的地址。而从高特权级到低特权级是调用返回，所以不用储存特权级3的栈地址，因为在低特权级转到高特权级之前，其相关寄存器肯定备份了。
+
+TSS需要将地址加载到TR(Task Register)寄存器。
+
+
+
+门结构
+
+![](https://i.imgur.com/bm6vZ3K.png)
+
+
+
+关于DPL,CPL和RPL
+
+CPL(`Current Privilege Level`)，当前正在执行的代码等级(处理器当前CPL储存在CS.RPL中)，处理器当前所处的特权级
+
+RPL(`Requester Privilege Level`)，请求者需要的特权级别，在选择子中
+
+DPL(`Descriptor Privilege Level`)，段描述符对应的特权级
+
+
+
+对于任务门
+
+当要向高特权级跃迁时，需满足最低特权级的限制
+
+
+
+![](https://i.imgur.com/fKFF4mp.png)
+
+
+
+一致性代码和非一致性代码(对于代码而言)
+
+==一致性代码就是操作系统拿出来被共享的代码段，可以被代码段直接访问的代码==
+
+一致性代码的限制作用：
+
+- 特权级高的代码段不允许访问特权级低的代码段：即内核态不允许 调用用户态的代码
+- 特权级低的代码可以访问特权级高的代码段，但是当前特权级不发生变化，即：用户太可以访问内核态的代码，但是用户依然是用户态
+
+
+
+==非一致性代码段是为了避免低特权级访问而被操作系统保护起来的系统代码，也就是非共享代码==
+
+非一致性代码的限制作用：
+
+- 只允许同特权间访问
+- 绝对禁止不同级间访问，即：用户态和内核态间相互不能访问
+
+
+
+对于数据段的访问：
+
+- 数据段中`DPL`规定了可以访问此段的最低特权级
+- 要求：`RPL`和`CPL`都同时大于`DPL`
+
+
+
+关于特权级DPL CPL 和RPL有机会再看吧，写得太。。。。***诶***
+
+
+
+关于IO特权级
+
+一共2`bit`，反映4个特权级
+
+不仅是除限制当前任务进行IO敏感指令最低特权级，还用来决定是否允许操作所有的IO端口(全部，每个任务都有储存自己的`eflags`,每个任务都有自己的`IOPL`)
+
+其设置通过`pushf`和`popf`
+
+![](https://i.imgur.com/9XHteVZ.png)
+
+
+
+此外，`IO`端口的开关可以通过像防火墙一样(先整体关闭，再局部打开)，控制端口的同时减少时间成本。
+
+
+
+IO位图
+
+- 只有在特权级(数值上)`CPL > IOPL`时才有意义，即上文说“防火墙控制法”
+- 当特权级(数值上)`CPL < IOPL`时，任何端口都可以不受限制地访问。
+
+
+
+IO位图位于TSS中(在TSS==内==偏移102字节的位置)，在不光包括IO位图时，TSS有104字节大小
+
+Inter最多支持`65536`个端口，通过65536个`bit`,每一个bit代表一个端口，也就是`65536/8=8192`字节，即`8KB`大小
+
+![](https://i.imgur.com/FLrA7js.png)
+
+在包含IO位图时，TSS大小为==“IO位图偏移地址” + 8192 + 1字节==(1字节是IO位图的结束边界符)
+
+
+
+在计算机硬件中，IO端口按字节编址，也就是说==一个端口只能写一个字节==，如果对一个端口连续写入多个字节数据，实际上是对该端口为起始的多个端口进行连续写入
+
+举个例子
+
+```sh
+in ax, 0x234
+#相当于
+
+in al, 0x234
+in al. 0x235
+```
+
+在处理IO位图时，处理器会检查相应的bit是否为0。
+
+- 若要读取多个字节，势必要检查连续多个端口所对应的多个`bit`，这些bit必须都为0时才能访问。
+- 当`bit`跨字节时，处理器需将涉及到的字节全部读入进行处理(异或)
+
+
+
+大多数新情况下没事
+
+​	但是，当第一个`bit`就是位图的最后一个`bit`时，此时再顺延读取后面的`bit`就有可能访问到IO位图之外的数据(造成错误).
+
+​	所以，处理器要求位图最后一字节是`0xFF`作为边界，也照应了IO位图的检测方法(`1`为关，`0`为开)
+
+
+
